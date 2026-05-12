@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem d:\\\\textalivewebgpu\\\\src\\\\shaders)",
+      "Bash(npx tsc *)",
+      "Bash(Get-ChildItem -Path \"d:\\\\textalivewebgpu\\\\src\" -Recurse)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "Bash(xargs perl -i -pe ' *)",
+      "Bash(npm install *)"
+    ]
+  }
+}

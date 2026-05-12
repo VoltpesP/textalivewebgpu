@@ -1,17 +1,12 @@
 // fur.frag.wgsl - shell-based fur fragment shader
 //
-// The core idea: each fragment decides whether it is "inside a hair strand"
-// by looking up a random grid. Fragments outside strands are discarded (alpha test).
+// fur_params.wgsl and lights.wgsl are prepended by FurRenderer.
 //
-// How strands are created:
-//   1. Map the sphere surface to a 2D UV grid (spherical projection)
-//   2. Each grid cell contains one hair strand, at a random center position
-//   3. Compute distance from this fragment to the strand center
-//   4. Hair radius = thick at shell 0, tapers to 0 at shell N (conical profile)
-//   5. Discard if outside the radius -> only strand pixels survive
-//   6. Shell 0 (skin) is kept fully solid so the base is not see-through
-//
-// lights.wgsl is prepended by FurRenderer before this source reaches the GPU.
+// Group 0: SceneUniforms (binding 0, vertex) + LightBuffer (binding 1) + FurParams (binding 2)
+// Group 1: ObjectUniforms (binding 0, vertex)
+
+@group(0) @binding(1) var<storage, read> lightBuf : LightBuffer;
+@group(0) @binding(2) var<uniform>       params   : FurParams;
 
 // 2D value hash - returns a pseudo-random float in [0, 1)
 fn hash21(p: vec2f) -> f32 {
@@ -19,12 +14,6 @@ fn hash21(p: vec2f) -> f32 {
   q += dot(q, q + 17.19);
   return fract(q.x * q.y);
 }
-
-// How many hair cells across the sphere (higher = denser fur)
-const DENSITY : f32 = 22.0;
-
-// binding 0 (Uniforms) lives only in the vertex stage — not needed here
-@group(0) @binding(1) var<storage, read> lightBuf : LightBuffer;
 
 @fragment
 fn main(
@@ -34,35 +23,32 @@ fn main(
   @location(3) worldPos    : vec3f,
 ) -> @location(0) vec4f {
   // -- UV from spherical projection --------------------------------------------
-  let n = normalize(localPos);
-  let u_coord = atan2(n.z, n.x) * 0.15915 + 0.5;  // 1 / (2*pi)
-  let v_coord = asin(clamp(n.y, -1.0, 1.0)) * 0.31831 + 0.5;  // 1 / pi
+  let n       = normalize(localPos);
+  let u_coord = atan2(n.z, n.x) * 0.15915 + 0.5;
+  let v_coord = asin(clamp(n.y, -1.0, 1.0)) * 0.31831 + 0.5;
 
-  // -- Hair grid ---------------------------------------------------------------
-  let uv     = vec2f(u_coord, v_coord) * DENSITY;
+  // -- Hair grid (density driven by params) ------------------------------------
+  let uv     = vec2f(u_coord, v_coord) * params.density;
   let cell   = floor(uv);
   let within = fract(uv);
 
-  let cx = 0.1 + hash21(cell) * 0.8;
-  let cy = 0.1 + hash21(cell + vec2f(37.3, 91.7)) * 0.8;
-  let dist   = length(within - vec2f(cx, cy));
+  let cx   = 0.1 + hash21(cell) * 0.8;
+  let cy   = 0.1 + hash21(cell + vec2f(37.3, 91.7)) * 0.8;
+  let dist = length(within - vec2f(cx, cy));
+
+  // Conical taper: full radius at skin, zero at tip
   let radius = 0.38 * (1.0 - shellT * shellT);
+  if (shellT > 0.01 && dist > radius) { discard; }
 
-  if (shellT > 0.01 && dist > radius) {
-    discard;
-  }
+  // -- Color (params-driven gradient) ------------------------------------------
+  let furColor = mix(params.rootColor.rgb, params.tipColor.rgb, shellT);
 
-  // -- Color -------------------------------------------------------------------
-  let rootColor = vec3f(0.80, 0.80, 0.80);
-  let tipColor  = vec3f(0.90, 0.70, 0.35);
-  let furColor  = mix(rootColor, tipColor, shellT);
-
-  // Shell AO: inner shells sit in shadow of outer shells
+  // Shell AO: inner shells slightly darker
   let ao = 0.4 + 0.6 * shellT;
 
-  // -- Lighting via LightManager -----------------------------------------------
+  // -- Lighting ----------------------------------------------------------------
   let N   = normalize(worldNormal);
-  var lit = vec3f(0.08);  // ambient floor
+  var lit = vec3f(0.08);
   let cnt = min(lightBuf.count, MAX_LIGHTS);
   for (var i = 0u; i < cnt; i++) {
     let lt = lightBuf.lights[i];

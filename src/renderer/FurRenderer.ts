@@ -15,13 +15,14 @@
  * The renderer automatically syncs GPU resources with scene.nodes each frame.
  */
 
-import GBUF_VERT     from '../shaders/gbuffer.vert.wgsl?raw';
-import GBUF_FRAG     from '../shaders/gbuffer.frag.wgsl?raw';
-import DEFERRED_VERT from '../shaders/deferred_light.vert.wgsl?raw';
-import DEFERRED_FRAG from '../shaders/deferred_light.frag.wgsl?raw';
-import FUR_VERT      from '../shaders/fur.vert.wgsl?raw';
-import FUR_FRAG      from '../shaders/fur.frag.wgsl?raw';
-import LIGHTS_WGSL   from '../shaders/lights.wgsl?raw';
+import GBUF_VERT      from '../shaders/gbuffer.vert.wgsl?raw';
+import GBUF_FRAG      from '../shaders/gbuffer.frag.wgsl?raw';
+import DEFERRED_VERT  from '../shaders/deferred_light.vert.wgsl?raw';
+import DEFERRED_FRAG  from '../shaders/deferred_light.frag.wgsl?raw';
+import FUR_VERT       from '../shaders/fur.vert.wgsl?raw';
+import FUR_FRAG       from '../shaders/fur.frag.wgsl?raw';
+import LIGHTS_WGSL    from '../shaders/lights.wgsl?raw';
+import FUR_PARAMS_WGSL from '../shaders/fur_params.wgsl?raw';
 
 import type { ShaderManager } from '../core/ShaderManager';
 import type { SceneManager }  from '../scene/SceneManager';
@@ -50,6 +51,7 @@ export interface FurRendererOptions {
   scene            : SceneManager;
   skyUniformBuffer : GPUBuffer;
   lightBuffer      : GPUBuffer;
+  paramsBuffer     : GPUBuffer;      // FurParams — real-time tweakable fur parameters
   depthView        : GPUTextureView;
   shaderManager    : ShaderManager;
   swapFormat       : GPUTextureFormat;
@@ -65,6 +67,7 @@ export class FurRenderer {
   private scene           : SceneManager;
   private skyUniformBuffer: GPUBuffer;
   private lightBuffer     : GPUBuffer;
+  private paramsBuffer    : GPUBuffer;
   private depthView       : GPUTextureView;
 
   // Pipelines
@@ -95,6 +98,7 @@ export class FurRenderer {
     this.scene            = opts.scene;
     this.skyUniformBuffer = opts.skyUniformBuffer;
     this.lightBuffer      = opts.lightBuffer;
+    this.paramsBuffer     = opts.paramsBuffer;
     this.depthView        = opts.depthView;
 
     this.gbuf          = new GBuffer(opts.device, opts.width, opts.height);
@@ -124,10 +128,11 @@ export class FurRenderer {
 
     const sm = opts.shaderManager;
 
-    this.gbufferPL = sm.createPipeline('gbuffer', GBUF_VERT, GBUF_FRAG, ALBEDO_FORMAT, {
+    // G-Buffer: vertex needs no params; fragment reads skinColor + bump params
+    this.gbufferPL = sm.createPipeline('gbuffer', GBUF_VERT, FUR_PARAMS_WGSL + '\n' + GBUF_FRAG, ALBEDO_FORMAT, {
       bufferLayout: vertexLayout,
       depthStencil: depthState,
-      cullMode: 'back',
+      cullMode: 'none',
       targets: [{ format: ALBEDO_FORMAT }, { format: NORMAL_FORMAT }],
     });
 
@@ -138,24 +143,33 @@ export class FurRenderer {
       opts.swapFormat,
     );
 
-    this.furPL = sm.createPipeline('fur', FUR_VERT, LIGHTS_WGSL + '\n' + FUR_FRAG, opts.swapFormat, {
-      bufferLayout: vertexLayout,
-      depthStencil: depthState,
-      cullMode: 'back',
-    });
+    // Fur: both stages read params (vertex: gravity/wind, fragment: density/colors)
+    this.furPL = sm.createPipeline(
+      'fur',
+      FUR_PARAMS_WGSL + '\n' + FUR_VERT,
+      FUR_PARAMS_WGSL + '\n' + LIGHTS_WGSL + '\n' + FUR_FRAG,
+      opts.swapFormat,
+      { bufferLayout: vertexLayout, depthStencil: depthState, cullMode: 'none' },
+    );
 
     // Group 0 bind groups (per-frame, no per-object data)
+    // G-Buffer group 0: binding 0 = scene (vertex), binding 1 = params (fragment)
     this.gbufferSceneBG = opts.device.createBindGroup({
       layout: this.gbufferPL.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.sceneBuffer } }],
+      entries: [
+        { binding: 0, resource: { buffer: this.sceneBuffer } },
+        { binding: 1, resource: { buffer: this.paramsBuffer } },
+      ],
       label: 'gbuffer-scene-bg',
     });
 
+    // Fur group 0: binding 0 = scene (vertex), binding 1 = lights (fragment), binding 2 = params (both)
     this.furSceneBG = opts.device.createBindGroup({
       layout: this.furPL.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.sceneBuffer } },
         { binding: 1, resource: { buffer: this.lightBuffer } },
+        { binding: 2, resource: { buffer: this.paramsBuffer } },
       ],
       label: 'fur-scene-bg',
     });

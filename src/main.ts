@@ -15,6 +15,7 @@ import { DebugOverlay } from './renderer/DebugOverlay';
 import { ModelDropZone } from './renderer/ModelDropZone';
 import { loadSkyboxFromFile } from './utils/SkyboxLoader';
 import { LightManager } from './lights/LightManager';
+import { FurParamsBuffer } from './renderer/FurParamsBuffer';
 
 // -- Constants ----------------------------------------------------------------
 
@@ -71,6 +72,9 @@ async function main(): Promise<void> {
   lights.upload();
   console.log('[Lights] Sun + spot initialized');
 
+  // -- Fur params -------------------------------------------------------------
+  const furParams = new FurParamsBuffer(rawDevice);
+
   // -- Scene ------------------------------------------------------------------
   const scene = new SceneManager();
 
@@ -85,6 +89,7 @@ async function main(): Promise<void> {
     scene,
     skyUniformBuffer,
     lightBuffer     : lights.getBuffer(),
+    paramsBuffer    : furParams.buffer,
     depthView       : gpuDevice.getDepthTextureView(),
     shaderManager   : app.getShaderManager(),
     swapFormat      : gpuDevice.getFormat(),
@@ -151,6 +156,42 @@ async function main(): Promise<void> {
   const camera = new OrbitCamera(canvas, { elevation: 0.15, radius: 3.5 });
 
   let totalTime = 0;
+
+  // -- Fur params UI ----------------------------------------------------------
+
+  function hexToRgb01(hex: string): [number, number, number] {
+    const v = parseInt(hex.slice(1), 16);
+    return [(v >> 16 & 255) / 255, (v >> 8 & 255) / 255, (v & 255) / 255];
+  }
+
+  function wireSlider(id: string, onChange: (v: number) => void) {
+    const el = document.getElementById(id) as HTMLInputElement | null;
+    if (!el) return;
+    el.addEventListener('input', () => { onChange(parseFloat(el.value)); furParams.upload(); });
+  }
+
+  function wireColor(id: string, onChange: (rgb: [number, number, number]) => void) {
+    const el = document.getElementById(id) as HTMLInputElement | null;
+    if (!el) return;
+    el.addEventListener('input', () => { onChange(hexToRgb01(el.value)); furParams.upload(); });
+  }
+
+  wireSlider('fp-shells',    v => { mainNode.numShells = Math.round(v); });
+  wireSlider('fp-furlength', v => { mainNode.furLength = v; });
+  wireSlider('fp-density',   v => { furParams.density  = v; });
+  wireSlider('fp-gravity',   v => { furParams.gravity   = v; });
+  wireSlider('fp-windstr',   v => { furParams.windStr   = v; });
+  wireSlider('fp-windspd',   v => { furParams.windSpd   = v; });
+  wireSlider('fp-bumpstr',   v => { furParams.bumpStr   = v; });
+  wireSlider('fp-bumpscale', v => { furParams.bumpScale = v; });
+  wireColor('fp-rootcolor',  rgb => { furParams.rootColor = rgb; });
+  wireColor('fp-tipcolor',   rgb => { furParams.tipColor  = rgb; });
+  wireColor('fp-skincolor',  rgb => { furParams.skinColor = rgb; });
+
+  // P key toggles the fur params panel
+  window.addEventListener('keydown', e => {
+    if (e.key === 'p' || e.key === 'P') document.body.classList.toggle('fp-visible');
+  });
 
   // -- Render loop ------------------------------------------------------------
   app.start((deltaTime: number) => {

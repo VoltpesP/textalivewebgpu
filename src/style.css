@@ -215,6 +215,99 @@ body.dbg-visible #debug-overlay { display: block; }
 
 /* ---- /Debug overlay ------------------------------------------------------- */
 
+/* ---- Fur params panel ----------------------------------------------------- */
+
+#fur-params-panel {
+  display: none;
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  width: 260px;
+  background: rgba(0, 0, 0, 0.82);
+  color: #e0e0e0;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 10px 14px 12px;
+  border: 1px solid rgba(192, 132, 252, 0.35);
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+  z-index: 10;
+  pointer-events: auto;
+}
+
+body.fp-visible #fur-params-panel { display: block; }
+
+.fp-title {
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  color: #fff;
+  margin-bottom: 2px;
+}
+
+.fp-title kbd {
+  display: inline-block;
+  padding: 0 5px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 10px;
+  color: #ccc;
+}
+
+.fp-sep {
+  border-top: 1px solid rgba(192, 132, 252, 0.20);
+  margin: 5px 0;
+}
+
+.fp-section {
+  color: rgba(192, 132, 252, 0.75);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+}
+
+.fp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+  cursor: default;
+}
+
+.fp-row > span:first-child {
+  width: 66px;
+  flex-shrink: 0;
+  color: #aaa;
+}
+
+.fp-row input[type="range"] {
+  flex: 1;
+  height: 3px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.fp-val {
+  width: 34px;
+  text-align: right;
+  color: #c084fc;
+  flex-shrink: 0;
+}
+
+.fp-color-row input[type="color"] {
+  width: 32px;
+  height: 18px;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+}
+
+/* ---- /Fur params panel ---------------------------------------------------- */
+
 button {
   border-radius: 8px;
   border: 1px solid transparent;
