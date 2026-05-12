@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/textalivewebgpu/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TextAlive WebGPU Framework</title>
+    <script type="module" crossorigin src="/textalivewebgpu/assets/index-BzjdvPSC.js"></script>
+    <link rel="stylesheet" crossorigin href="/textalivewebgpu/assets/index-7tzplhrx.css">
+  </head>
+  <body>
+    <canvas id="webgpu-canvas"></canvas>
+
+    <!-- Model loader panel: top-left corner -->
+    <div id="model-panel">
+      <button id="model-btn">Load Model</button>
+      <span id="model-name">sphere (default)</span>
+      <input id="model-input" type="file" accept=".obj,.glb">
+      <span class="panel-sep">|</span>
+      <button id="sky-btn">Load Skybox</button>
+      <span id="sky-name">gradient (default)</span>
+      <input id="sky-input" type="file" accept="image/*">
+    </div>
+
+    <!-- Full-canvas drop-zone overlay (visible only while dragging) -->
+    <div id="drop-hint">
+      <div class="drop-hint-box">
+        <div class="drop-icon">&#8659;</div>
+        <div>Drop <strong>.obj</strong> or <strong>.glb</strong></div>
+      </div>
+    </div>
+
+    <!-- Debug overlay — toggled by the ` (backtick) key -->
+    <div id="debug-overlay">
+      <!-- Info panel: top-right corner -->
+      <div id="debug-panel">
+        <div class="dbg-title">DEBUG&nbsp;<kbd>`</kbd></div>
+        <div class="dbg-sep"></div>
+        <div id="dbg-fps">FPS: –</div>
+        <div id="dbg-shells"></div>
+        <div class="dbg-sep"></div>
+        <div class="dbg-head">G-Buffer (bottom-left)</div>
+        <div><span class="dbg-num">①</span> Albedo</div>
+        <div><span class="dbg-num">②</span> World normal</div>
+        <div><span class="dbg-num">③</span> Depth (linear)</div>
+      </div>
+      <!-- Labels that sit just above the rendered thumbnails -->
+      <div id="dbg-label-albedo"  class="dbg-thumb-label"><span class="dbg-num">①</span> Albedo</div>
+      <div id="dbg-label-normal"  class="dbg-thumb-label"><span class="dbg-num">②</span> Normal</div>
+      <div id="dbg-label-depth"   class="dbg-thumb-label"><span class="dbg-num">③</span> Depth</div>
+      <!-- Borders drawn over the thumbnail regions -->
+      <div id="dbg-border-albedo" class="dbg-thumb-border"></div>
+      <div id="dbg-border-normal" class="dbg-thumb-border"></div>
+      <div id="dbg-border-depth"  class="dbg-thumb-border"></div>
+    </div>
+
+    <!-- Fur params panel — toggled by P key -->
+    <div id="fur-params-panel">
+      <div class="fp-title">FUR PARAMS&nbsp;<kbd>P</kbd></div>
+      <div class="fp-sep"></div>
+
+      <div class="fp-section">GEOMETRY</div>
+      <label class="fp-row"><span>Shells</span>
+        <input id="fp-shells" type="range" min="4" max="64" step="1" value="32">
+        <span class="fp-val" data-for="fp-shells">32</span>
+      </label>
+      <label class="fp-row"><span>Length</span>
+        <input id="fp-furlength" type="range" min="0.01" max="0.60" step="0.01" value="0.20">
+        <span class="fp-val" data-for="fp-furlength">0.20</span>
+      </label>
+      <label class="fp-row"><span>Density</span>
+        <input id="fp-density" type="range" min="2" max="60" step="1" value="22">
+        <span class="fp-val" data-for="fp-density">22</span>
+      </label>
+
+      <div class="fp-sep"></div>
+      <div class="fp-section">MOTION</div>
+      <label class="fp-row"><span>Gravity</span>
+        <input id="fp-gravity" type="range" min="0" max="0.30" step="0.005" value="0.07">
+        <span class="fp-val" data-for="fp-gravity">0.07</span>
+      </label>
+      <label class="fp-row"><span>Wind str</span>
+        <input id="fp-windstr" type="range" min="0" max="3.0" step="0.05" value="1.0">
+        <span class="fp-val" data-for="fp-windstr">1.00</span>
+      </label>
+      <label class="fp-row"><span>Wind spd</span>
+        <input id="fp-windspd" type="range" min="0" max="5.0" step="0.1" value="1.0">
+        <span class="fp-val" data-for="fp-windspd">1.0</span>
+      </label>
+
+      <div class="fp-sep"></div>
+      <div class="fp-section">SURFACE</div>
+      <label class="fp-row"><span>Bump str</span>
+        <input id="fp-bumpstr" type="range" min="0" max="12" step="0.1" value="4.0">
+        <span class="fp-val" data-for="fp-bumpstr">4.0</span>
+      </label>
+      <label class="fp-row"><span>Bump scale</span>
+        <input id="fp-bumpscale" type="range" min="0.5" max="20" step="0.5" value="6.0">
+        <span class="fp-val" data-for="fp-bumpscale">6.0</span>
+      </label>
+
+      <div class="fp-sep"></div>
+      <div class="fp-section">COLORS</div>
+      <label class="fp-row fp-color-row"><span>Root</span>
+        <input id="fp-rootcolor" type="color" value="#cccccc">
+      </label>
+      <label class="fp-row fp-color-row"><span>Tip</span>
+        <input id="fp-tipcolor" type="color" value="#e6b359">
+      </label>
+      <label class="fp-row fp-color-row"><span>Skin</span>
+        <input id="fp-skincolor" type="color" value="#331a0a">
+      </label>
+    </div>
+
+    <script>
+      // Live value display for fur-params sliders
+      document.addEventListener('input', e => {
+        const el = e.target;
+        if (!(el instanceof HTMLInputElement) || el.type !== 'range') return;
+        const out = document.querySelector('[data-for="' + el.id + '"]');
+        if (out) out.textContent = parseFloat(el.value).toFixed(el.step.includes('.') ? el.step.split('.')[1].length : 0);
+      });
+    </script>
+  </body>
+</html>
