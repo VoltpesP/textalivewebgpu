@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TextAlive WebGPU Framework</title>
+  </head>
+  <body>
+    <canvas id="webgpu-canvas"></canvas>
+
+    <!-- Model loader panel: top-left corner -->
+    <div id="model-panel">
+      <button id="model-btn">Load Model</button>
+      <span id="model-name">sphere (default)</span>
+      <input id="model-input" type="file" accept=".obj,.glb">
+      <span class="panel-sep">|</span>
+      <button id="sky-btn">Load Skybox</button>
+      <span id="sky-name">gradient (default)</span>
+      <input id="sky-input" type="file" accept="image/*">
+    </div>
+
+    <!-- Full-canvas drop-zone overlay (visible only while dragging) -->
+    <div id="drop-hint">
+      <div class="drop-hint-box">
+        <div class="drop-icon">&#8659;</div>
+        <div>Drop <strong>.obj</strong> or <strong>.glb</strong></div>
+      </div>
+    </div>
+
+    <!-- Debug overlay — toggled by the ` (backtick) key -->
+    <div id="debug-overlay">
+      <!-- Info panel: top-right corner -->
+      <div id="debug-panel">
+        <div class="dbg-title">DEBUG&nbsp;<kbd>`</kbd></div>
+        <div class="dbg-sep"></div>
+        <div id="dbg-fps">FPS: –</div>
+        <div id="dbg-shells"></div>
+        <div class="dbg-sep"></div>
+        <div class="dbg-head">G-Buffer (bottom-left)</div>
+        <div><span class="dbg-num">①</span> Albedo</div>
+        <div><span class="dbg-num">②</span> World normal</div>
+        <div><span class="dbg-num">③</span> Depth (linear)</div>
+      </div>
+      <!-- Labels that sit just above the rendered thumbnails -->
+      <div id="dbg-label-albedo"  class="dbg-thumb-label"><span class="dbg-num">①</span> Albedo</div>
+      <div id="dbg-label-normal"  class="dbg-thumb-label"><span class="dbg-num">②</span> Normal</div>
+      <div id="dbg-label-depth"   class="dbg-thumb-label"><span class="dbg-num">③</span> Depth</div>
+      <!-- Borders drawn over the thumbnail regions -->
+      <div id="dbg-border-albedo" class="dbg-thumb-border"></div>
+      <div id="dbg-border-normal" class="dbg-thumb-border"></div>
+      <div id="dbg-border-depth"  class="dbg-thumb-border"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
