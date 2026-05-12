@@ -1,30 +1,27 @@
 /**
  * main.ts — entry point.
- * Wires up the WebGPU app, geometry, camera, renderer, debug overlay, and model/skybox loaders.
+ * Wires up the WebGPU app, scene manager, camera, renderer, debug overlay,
+ * and model/skybox loaders.
  */
 
 import './style.css';
 import { WebGPUApp } from './core/WebGPUApp';
-import { perspectiveMatrix, lookAt, multiplyMatrices, createIdentityMatrix, invertMatrix4x4 } from './utils/MathUtils';
+import { perspectiveMatrix, lookAt, multiplyMatrices, invertMatrix4x4 } from './utils/MathUtils';
 import { createSphereInterleaved } from './utils/GeometryUtils';
 import { OrbitCamera } from './utils/OrbitCamera';
+import { SceneManager } from './scene/SceneManager';
 import { FurRenderer } from './renderer/FurRenderer';
 import { DebugOverlay } from './renderer/DebugOverlay';
 import { ModelDropZone } from './renderer/ModelDropZone';
 import { loadSkyboxFromFile } from './utils/SkyboxLoader';
+import { LightManager } from './lights/LightManager';
 
 // -- Constants ----------------------------------------------------------------
-
-const NUM_SHELLS = 32;
-const FUR_LENGTH = 0.20;
-
-// Uniform layout: viewProj(64) + model(64) + time(4) + numShells(4) + furLength(4) + firstShell(4) = 144 bytes
-const UNIFORM_FLOATS = 36;
 
 // Sky uniform layout (96 bytes):
 //   invViewProj mat4x4<f32>  offset  0 — 64 bytes
 //   eyePos      vec4<f32>    offset 64 — 16 bytes
-//   hasSkybox   u32          offset 80 —  4 bytes  (written as Uint32)
+//   hasSkybox   u32          offset 80 —  4 bytes
 const SKY_UNIFORM_BYTES = 96;
 
 // -- Boot ---------------------------------------------------------------------
@@ -49,32 +46,49 @@ async function main(): Promise<void> {
   }
   console.log('[WebGPU] Canvas:', canvas.width, 'x', canvas.height);
 
-  // -- Uniform buffers --------------------------------------------------------
-  const uniformBuffer    = gpuDevice.createUniformBuffer(UNIFORM_FLOATS * 4, 'uniforms');
-  const skyUniformBuffer = gpuDevice.createUniformBuffer(SKY_UNIFORM_BYTES,  'sky-uniforms');
-
-  // CPU-side sky uniform backing store
+  // -- Sky uniform buffer (invViewProj + eyePos + hasSkybox) ------------------
+  const skyUniformBuffer = gpuDevice.createUniformBuffer(SKY_UNIFORM_BYTES, 'sky-uniforms');
   const skyBufAB  = new ArrayBuffer(SKY_UNIFORM_BYTES);
   const skyBufF32 = new Float32Array(skyBufAB);
   const skyBufU32 = new Uint32Array(skyBufAB);
-  // hasSkybox flag at byte offset 80 (u32 index 20) — 0 until a skybox is loaded
-  skyBufU32[20] = 0;
+  skyBufU32[20] = 0;  // hasSkybox = false
 
-  // -- Default geometry (sphere) ----------------------------------------------
+  // -- Light manager ----------------------------------------------------------
+  const lights = new LightManager(rawDevice);
+  lights.addSun(
+    [1.0, -2.0, 1.5],    // direction FROM sun TOWARD scene
+    [1.0, 1.0, 1.0],     // white
+    0.80,
+  );
+  lights.addSpot(
+    [3.0, 4.0, 3.0],     // world position
+    [-1.0, -1.3, -1.0],  // direction toward scene center
+    20, 35,              // inner/outer cone angles (degrees)
+    12.0,                // range
+    [0.6, 0.8, 1.0],     // cool blue-white
+    6.0,
+  );
+  lights.upload();
+  console.log('[Lights] Sun + spot initialized');
+
+  // -- Scene ------------------------------------------------------------------
+  const scene = new SceneManager();
+
   const sphere = createSphereInterleaved(1.0, 48, 24);
-  console.log('[Geometry] Default sphere:', sphere.indices.length / 3, 'triangles');
+  const mainNode = scene.add('Sphere', sphere, { numShells: 32, furLength: 0.20 });
+  console.log('[Scene] Default sphere added —', sphere.indices.length / 3, 'triangles');
 
   // -- Renderer ---------------------------------------------------------------
   const { width, height } = gpuDevice.getCanvasSize();
   const renderer = new FurRenderer({
     device          : rawDevice,
-    uniformBuffer,
+    scene,
     skyUniformBuffer,
-    geometry        : sphere,
+    lightBuffer     : lights.getBuffer(),
+    depthView       : gpuDevice.getDepthTextureView(),
     shaderManager   : app.getShaderManager(),
     swapFormat      : gpuDevice.getFormat(),
     depthFormat     : gpuDevice.depthFormat,
-    numShells       : NUM_SHELLS,
     width,
     height,
   });
@@ -86,23 +100,24 @@ async function main(): Promise<void> {
     device       : rawDevice,
     shaderManager: app.getShaderManager(),
     swapFormat   : gpuDevice.getFormat(),
-    numShells    : NUM_SHELLS,
     initialGbuf  : renderer.gbuf,
   });
-
-  // Wire initial depth view into the debug overlay
   debug.setDepthView(gpuDevice.getDepthTextureView());
+
+  // Shells info in debug panel
+  const shellsEl = document.getElementById('dbg-shells');
+  if (shellsEl) shellsEl.textContent = `Shells: 1 deferred + ${mainNode.numShells - 1} forward`;
 
   // -- Model drop zone --------------------------------------------------------
   new ModelDropZone(canvas, (geo, name) => {
-    renderer.setGeometry(geo);
-    console.log(`[Model] Loaded "${name}" — ${geo.indices.length / 3} triangles, ${geo.vertices.length / 6} vertices`);
+    mainNode.geometry = geo;  // geometryDirty flag set automatically
+    console.log(`[Model] Loaded "${name}" — ${geo.indices.length / 3} triangles`);
   });
 
   // -- Skybox loader ----------------------------------------------------------
-  const skyBtn   = document.getElementById('sky-btn') as HTMLButtonElement | null;
-  const skyInput = document.getElementById('sky-input') as HTMLInputElement | null;
-  const skyName  = document.getElementById('sky-name') as HTMLSpanElement  | null;
+  const skyBtn   = document.getElementById('sky-btn')   as HTMLButtonElement | null;
+  const skyInput = document.getElementById('sky-input') as HTMLInputElement  | null;
+  const skyName  = document.getElementById('sky-name')  as HTMLSpanElement   | null;
 
   if (skyBtn && skyInput) {
     skyBtn.addEventListener('click', () => skyInput.click());
@@ -113,7 +128,7 @@ async function main(): Promise<void> {
       try {
         const tex = await loadSkyboxFromFile(file, rawDevice);
         renderer.setSkybox(tex);
-        skyBufU32[20] = 1;  // enable skybox sampling in shader
+        skyBufU32[20] = 1;
         if (skyName) skyName.textContent = file.name;
         console.log(`[Skybox] Loaded "${file.name}"`);
       } catch (e) {
@@ -127,19 +142,13 @@ async function main(): Promise<void> {
   // -- Resize -----------------------------------------------------------------
   app.addResizeListener((w, h) => {
     renderer.resize(w, h);
+    renderer.setDepthView(gpuDevice.getDepthTextureView());
     debug.onGBufferResize(renderer.gbuf);
     debug.setDepthView(gpuDevice.getDepthTextureView());
   });
 
-  console.log('[Fur] Hybrid deferred+forward — ` toggles debug overlay');
-
   // -- Camera -----------------------------------------------------------------
   const camera = new OrbitCamera(canvas, { elevation: 0.15, radius: 3.5 });
-
-  // -- Per-frame uniform data -------------------------------------------------
-  const uniformData = new Float32Array(UNIFORM_FLOATS);
-  const model       = createIdentityMatrix();
-  uniformData[35]   = 1;  // firstShell = 1 (skin is deferred, fur starts at shell 1)
 
   let totalTime = 0;
 
@@ -155,22 +164,16 @@ async function main(): Promise<void> {
     const proj     = perspectiveMatrix(Math.PI / 4, width / height, 0.1, 100);
     const viewProj = multiplyMatrices(proj, view);
 
-    uniformData.set(viewProj, 0);
-    uniformData.set(model,    16);
-    uniformData[32] = totalTime;
-    uniformData[33] = NUM_SHELLS;
-    uniformData[34] = FUR_LENGTH;
+    // Scene uniforms (shared across all objects)
+    renderer.updateSceneUniforms(viewProj, totalTime);
 
-    gpuDevice.writeUniformBuffer(uniformBuffer, uniformData);
-
-    // Sky uniforms: inverse view-projection + camera eye position
+    // Sky uniforms
     const invViewProj = invertMatrix4x4(viewProj);
-    skyBufF32.set(invViewProj, 0);          // offset 0: invViewProj
-    skyBufF32[16] = eye[0];                  // offset 64: eyePos.x
-    skyBufF32[17] = eye[1];                  // offset 68: eyePos.y
-    skyBufF32[18] = eye[2];                  // offset 72: eyePos.z
-    skyBufF32[19] = 0;                       // offset 76: eyePos.w (padding)
-    // skyBufU32[20] at offset 80 (hasSkybox) is set when loading/clearing the skybox
+    skyBufF32.set(invViewProj, 0);
+    skyBufF32[16] = eye[0];
+    skyBufF32[17] = eye[1];
+    skyBufF32[18] = eye[2];
+    skyBufF32[19] = 0;
     rawDevice.queue.writeBuffer(skyUniformBuffer, 0, skyBufAB);
 
     const encoder   = rawDevice.createCommandEncoder({ label: 'frame' });

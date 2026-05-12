@@ -5,9 +5,11 @@
 // If no skybox is loaded the procedural gradient sky is used as fallback.
 //
 // Sky uniform buffer layout (96 bytes):
-//   offset  0: invViewProj  mat4x4<f32>  (64 bytes) - reconstructs world ray
+//   offset  0: invViewProj  mat4x4<f32>  (64 bytes) - reconstructs world ray + worldPos
 //   offset 64: eyePos       vec4<f32>    (16 bytes) - camera world position
 //   offset 80: hasSkybox    u32          (4 bytes)  - 1 if skybox is loaded
+//
+// lights.wgsl is prepended by FurRenderer before this source reaches the GPU.
 
 @group(0) @binding(0) var albedoTex   : texture_2d<f32>;
 @group(0) @binding(1) var normalTex   : texture_2d<f32>;
@@ -20,7 +22,9 @@ struct SkyUniforms {
   eyePos      : vec4<f32>,    // offset 64
   hasSkybox   : u32,          // offset 80
 }
-@group(0) @binding(5) var<uniform> sky : SkyUniforms;
+@group(0) @binding(5) var<uniform>       sky      : SkyUniforms;
+@group(0) @binding(6) var<storage, read> lightBuf : LightBuffer;
+@group(0) @binding(7) var depthTex : texture_depth_2d;
 
 // ---- Cross-layout UV mapping -----------------------------------------------
 //
@@ -101,13 +105,33 @@ fn main(@location(0) uv: vec2f) -> @location(0) vec4f {
     return vec4f(procedural_sky(dir), 1.0);
   }
 
-  // Geometry: unpack G-Buffer and compute lighting
+  // Geometry: unpack G-Buffer
   let albedo      = albedoSample.rgb;
   let worldNormal = normalize(normalSample.rgb * 2.0 - 1.0);
+  let N           = worldNormal;
 
-  let lightDir = normalize(vec3f(-1.0, 2.0, -1.5));
-  let diffuse  = max(dot(worldNormal, lightDir), 0.0) * 0.8 + 0.2;
-  let ao       = 0.4;
+  // Reconstruct world position from depth (needed for spot lights)
+  let dims     = vec2f(textureDimensions(depthTex, 0));
+  let coord    = vec2i(clamp(uv * dims, vec2f(0.0), dims - 1.0));
+  let depth    = textureLoad(depthTex, coord, 0);
+  let ndcPos   = vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+  let worldH   = sky.invViewProj * ndcPos;
+  let worldPos = worldH.xyz / worldH.w;
 
-  return vec4f(albedo * diffuse * ao, 1.0);
+  // Evaluate all lights
+  var lit = vec3f(0.08);  // ambient floor
+  let cnt = min(lightBuf.count, MAX_LIGHTS);
+  for (var i = 0u; i < cnt; i++) {
+    let lt = lightBuf.lights[i];
+    let tp = u32(lt.posType.w);
+    if (tp == LIGHT_DIR) {
+      lit += eval_directional(lt, N);
+    } else if (tp == LIGHT_SPOT) {
+      lit += eval_spot(lt, N, worldPos);
+    } else {
+      lit += eval_sun(lt, N);
+    }
+  }
+
+  return vec4f(albedo * lit, 1.0);
 }

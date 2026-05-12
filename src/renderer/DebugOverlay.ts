@@ -30,7 +30,6 @@ export interface DebugOverlayOptions {
   device       : GPUDevice;
   shaderManager: ShaderManager;
   swapFormat   : GPUTextureFormat;
-  numShells    : number;
   initialGbuf  : GBuffer;
 }
 
@@ -71,9 +70,6 @@ export class DebugOverlay {
     );
 
     this.fpsEl = document.getElementById('dbg-fps');
-
-    const shellsEl = document.getElementById('dbg-shells');
-    if (shellsEl) shellsEl.textContent = `Shells: 1 deferred + ${opts.numShells - 1} forward`;
 
     this.albedoBG = this.makeBG(opts.initialGbuf.albedoView, 'blit-albedo-bg');
     this.normalBG = this.makeBG(opts.initialGbuf.normalView, 'blit-normal-bg');

@@ -188,6 +188,16 @@ export function invertMatrix4x4(m: Float32Array): Float32Array {
   return out;
 }
 
+/** Uniform scale matrix (column-major). */
+export function scaleMatrix(s: number): Float32Array {
+  return new Float32Array([
+    s, 0, 0, 0,
+    0, s, 0, 0,
+    0, 0, s, 0,
+    0, 0, 0, 1,
+  ]);
+}
+
 /** Translation matrix (column-major). */
 export function translation(x: number, y: number, z: number): Float32Array {
   return new Float32Array([
